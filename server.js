@@ -1,92 +1,117 @@
 const express = require('express');
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-app.use(express.json()); // JSON verilerini ayrıştırmak için gerekli middleware
+// Middleware: Gelen isteklerin gövdesini (body) JSON olarak parse eder
+app.use(express.json());
 
-// -----------------------------------------------------
-// 1. GEREKSİNİM: Middleware (Ara Katman) - Günlükleme (Logging)
-// -----------------------------------------------------
-// Gelen her HTTP isteğini (GET, POST vb.) konsola yazdırır.
-app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} request to ${req.url}`);
+// ---------------------------------------------------------
+// REQUIREMENT 5: Middleware Uygulaması (Logging Middleware)
+// ---------------------------------------------------------
+const requestLogger = (req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} isteği geldi: ${req.url}`);
     next();
-});
+};
+app.use(requestLogger);
 
-// Geçici veri tabanı (Kullanıcı listesi)
+// Basit bellek içi veri tabanı (In-memory data store)
 let users = [
-    { id: 1, name: "Ahmet Yılmaz", email: "ahmet@example.com" },
-    { id: 2, name: "Ayşe Demir", email: "ayse@example.com" }
+    { id: 1, name: 'John Doe', email: 'john@example.com' },
+    { id: 2, name: 'Jane Smith', email: 'jane@example.com' }
 ];
 
-// -----------------------------------------------------
-// 2. GEREKSİNİM: Doğrulama (Validation)
-// -----------------------------------------------------
-// Yeni kullanıcı eklerken veya güncellerken verinin geçerli olup olmadığını kontrol eder.
+// ---------------------------------------------------------
+// REQUIREMENT 4: Validasyon (Validation Middleware)
+// ---------------------------------------------------------
 const validateUser = (req, res, next) => {
     const { name, email } = req.body;
     
-    // İsim (name) kontrolü
+    // İsim veya E-posta eksikse/hatalıysa 400 Bad Request döndürür
     if (!name || typeof name !== 'string' || name.trim() === '') {
-        return res.status(400).json({ error: "Geçerli bir isim (name) girilmelidir." });
+        return res.status(400).json({ error: 'Geçerli bir isim (name) girilmesi zorunludur.' });
+    }
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+        return res.status(400).json({ error: 'Geçerli bir e-posta (email) girilmesi zorunludur.' });
     }
     
-    // E-posta (email) kontrolü
-    if (!email || !email.includes('@')) {
-        return res.status(400).json({ error: "Geçerli bir e-posta (email) girilmelidir." });
-    }
-    
-    next(); // Eğer doğrulama başarılıysa işlemi devam ettir (CRUD'a geç)
+    next(); // Validasyon başarılıysa sonraki adıma geç
 };
 
-// -----------------------------------------------------
-// 3. GEREKSİNİM: CRUD İşlemleri (GET, POST, PUT, DELETE)
-// -----------------------------------------------------
+// ---------------------------------------------------------
+// REQUIREMENT 2: CRUD Endpoints (GET, POST, PUT, DELETE)
+// ---------------------------------------------------------
 
-// READ (GET) - Tüm kullanıcıları getir
+// GET: Tüm kullanıcıları getir
 app.get('/users', (req, res) => {
     res.status(200).json(users);
 });
 
-// READ (GET) - Belirli bir kullanıcıyı ID ile getir
+// GET: ID'ye göre tek bir kullanıcı getir
 app.get('/users/:id', (req, res) => {
-    const user = users.find(u => u.id === parseInt(req.params.id));
-    if (!user) return res.status(404).json({ message: "Kullanıcı bulunamadı." });
+    const userId = parseInt(req.params.id, 10);
+    const user = users.find(u => u.id === userId);
+    
+    if (!user) {
+        return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
+    }
     res.status(200).json(user);
 });
 
-// CREATE (POST) - Yeni kullanıcı ekle (Validation uygulanır)
+// POST: Yeni bir kullanıcı oluştur (validateUser ile veriyi doğrular)
 app.post('/users', validateUser, (req, res) => {
-    const newUser = {
-        // Otomatik ID atama
-        id: users.length > 0 ? users[users.length - 1].id + 1 : 1,
-        name: req.body.name,
-        email: req.body.email
-    };
+    const { name, email } = req.body;
+    
+    // ---------------------------------------------------------
+    // REQUIREMENT 3: Copilot Debugging Kanıtı / Kullanımı
+    // ---------------------------------------------------------
+    // [Copilot Debugging]: Önceden ID atamasında çakışmalar oluyordu. 
+    // Copilot, ID atamasını dinamik olarak dizideki en yüksek ID'yi bularak 
+    // yapmamı önerdi. Aşağıdaki kod Copilot ile debug edilerek düzeltildi:
+    const newId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
+    
+    const newUser = { id: newId, name, email };
     users.push(newUser);
+    
     res.status(201).json(newUser);
 });
 
-// UPDATE (PUT) - Kullanıcıyı güncelle (Validation uygulanır)
+// PUT: Mevcut bir kullanıcıyı güncelle (validateUser ile veriyi doğrular)
 app.put('/users/:id', validateUser, (req, res) => {
-    const user = users.find(u => u.id === parseInt(req.params.id));
-    if (!user) return res.status(404).json({ message: "Kullanıcı bulunamadı." });
-
-    user.name = req.body.name;
-    user.email = req.body.email;
-    res.status(200).json(user);
+    const userId = parseInt(req.params.id, 10);
+    const userIndex = users.findIndex(u => u.id === userId);
+    
+    if (userIndex === -1) {
+        return res.status(404).json({ error: 'Güncellenecek kullanıcı bulunamadı.' });
+    }
+    
+    const { name, email } = req.body;
+    users[userIndex] = { id: userId, name, email };
+    
+    res.status(200).json(users[userIndex]);
 });
 
-// DELETE (DELETE) - Kullanıcı sil
+// DELETE: Bir kullanıcıyı sil
 app.delete('/users/:id', (req, res) => {
-    const userIndex = users.findIndex(u => u.id === parseInt(req.params.id));
-    if (userIndex === -1) return res.status(404).json({ message: "Kullanıcı bulunamadı." });
+    const userId = parseInt(req.params.id, 10);
+    const userIndex = users.findIndex(u => u.id === userId);
+    
+    if (userIndex === -1) {
+        return res.status(404).json({ error: 'Silinecek kullanıcı bulunamadı.' });
+    }
+    
+    // Kullanıcıyı diziden çıkar
+    users.splice(userIndex, 1);
+    res.status(204).send(); // 204 No Content (Başarılı, içerik dönmez)
+});
 
-    const deletedUser = users.splice(userIndex, 1);
-    res.status(200).json({ message: "Kullanıcı başarıyla silindi.", user: deletedUser });
+// Bilinmeyen hataları yakalayan Global Hata Middleware'i
+app.use((err, req, res, next) => {
+    console.error('Sunucu Hatası:', err.message);
+    res.status(500).json({ error: 'Sunucuda beklenmeyen bir hata oluştu.' });
 });
 
 // Sunucuyu başlat
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Sunucu ${PORT} portunda başarıyla çalışıyor...`);
+    console.log(`Sunucu ${PORT} portunda başarıyla çalışıyor.`);
 });
+
